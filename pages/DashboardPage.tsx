@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from '../components/Navbar';
 import { Plus, Clock, MoreVertical, Search } from 'lucide-react';
 import { Project, GarmentType } from '../types';
 

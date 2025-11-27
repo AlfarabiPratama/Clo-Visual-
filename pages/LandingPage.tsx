@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from '../components/Navbar';
 import { Sparkles, Layers, Zap, Box, ArrowRight, CheckCircle2 } from 'lucide-react';
 
 const LandingPage: React.FC = () => {

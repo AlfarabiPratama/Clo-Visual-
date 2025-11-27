@@ -1,6 +1,94 @@
-import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Shirt, Menu, X } from 'lucide-react';
+
+// --- Minimal Router Implementation (Polyfill for react-router-dom) ---
+interface RouterContextType {
+  currentPath: string;
+  navigate: (to: string, options?: { state?: any }) => void;
+  state: any;
+}
+
+const RouterContext = createContext<RouterContextType>({
+  currentPath: '/',
+  navigate: () => {},
+  state: null,
+});
+
+export const HashRouter: React.FC<{children: ReactNode}> = ({ children }) => {
+  const [currentPath, setCurrentPath] = useState(window.location.hash.slice(1) || '/');
+  const [state, setState] = useState<any>(null);
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      setCurrentPath(window.location.hash.slice(1) || '/');
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  const navigate = (to: string, options?: { state?: any }) => {
+    if (options?.state) {
+      setState(options.state);
+    }
+    window.location.hash = to;
+  };
+
+  return (
+    <RouterContext.Provider value={{ currentPath, navigate, state }}>
+      {children}
+    </RouterContext.Provider>
+  );
+};
+
+export const Routes: React.FC<{children: ReactNode}> = ({ children }) => {
+  const { currentPath } = useContext(RouterContext);
+  let matchedChild: ReactNode = null;
+  
+  React.Children.forEach(children, (child) => {
+    if (matchedChild) return;
+    if (React.isValidElement(child)) {
+      const props = child.props as any;
+      if (props.path === currentPath) {
+        matchedChild = child;
+      }
+    }
+  });
+  
+  return <>{matchedChild}</>;
+};
+
+export const Route: React.FC<{path: string, element: ReactNode}> = ({ element }) => {
+  return <>{element}</>;
+};
+
+export const Link: React.FC<{to: string, className?: string, children: ReactNode, onClick?: () => void, state?: any}> = ({ to, className, children, onClick, state }) => {
+  const { navigate } = useContext(RouterContext);
+  
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (onClick) onClick();
+    navigate(to, { state });
+  };
+  
+  const href = to.startsWith('/') ? '#' + to : '#' + '/' + to;
+
+  return (
+    <a href={href} onClick={handleClick} className={className}>
+      {children}
+    </a>
+  );
+};
+
+export const useLocation = () => {
+  const { currentPath, state } = useContext(RouterContext);
+  return { pathname: currentPath, state };
+};
+
+export const useNavigate = () => {
+  const { navigate } = useContext(RouterContext);
+  return navigate;
+};
+// --- End Router Implementation ---
 
 const Navbar: React.FC = () => {
   const [isOpen, setIsOpen] = React.useState(false);

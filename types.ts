@@ -1,3 +1,4 @@
+
 export interface Project {
   id: string;
   name: string;
@@ -7,12 +8,17 @@ export interface Project {
   description?: string;
 }
 
+export type FitType = 'Regular' | 'Slim' | 'Oversized';
+
 export interface DesignState {
   projectName: string;
   garmentType: string;
   color: string;
   textureUrl: string | null;
   description: string;
+  fit: FitType;
+  textureScale: number;
+  customModelUrl: string | null; // URL blob for user-uploaded GLB
 }
 
 export interface ChatMessage {

@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
-import { Download, Save, Wand2, Upload, MessageSquare, X, Send } from 'lucide-react';
-import { DesignState, GarmentType, ChatMessage } from '../types';
+
+import React, { useState, useEffect, useRef } from 'react';
+import { useLocation } from '../components/Navbar';
+import { Download, Save, Wand2, Upload, MessageSquare, X, Send, Box } from 'lucide-react';
+import { DesignState, GarmentType, ChatMessage, FitType } from '../types';
 import ThreeDViewer from '../components/ThreeDViewer';
 import { generateDesignFromText, generateDesignFromImage, chatWithAiAssistant } from '../services/aiService';
 
@@ -15,7 +16,10 @@ const DesignerPage: React.FC = () => {
     garmentType: initialState?.type || initialState?.project?.garmentType || GarmentType.TSHIRT,
     color: '#ffffff',
     textureUrl: null, // Start with no texture
-    description: initialState?.project?.description || ''
+    description: initialState?.project?.description || '',
+    fit: 'Regular', // Default fit
+    textureScale: 3, // Default scale
+    customModelUrl: null // Start with no custom model
   });
 
   const [promptText, setPromptText] = useState('');
@@ -29,6 +33,9 @@ const DesignerPage: React.FC = () => {
     { role: 'assistant', content: 'Halo! Ada yang bisa saya bantu dengan desain Anda hari ini?' }
   ]);
   const [isChatLoading, setIsChatLoading] = useState(false);
+
+  // Ref for the 3D Canvas (for export)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // --- Handlers ---
 
@@ -84,6 +91,16 @@ const DesignerPage: React.FC = () => {
     }
   };
 
+  const handleModelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const url = URL.createObjectURL(file);
+      setDesignState(prev => ({ ...prev, customModelUrl: url }));
+      setStatusMessage(`Model ${file.name} dimuat!`);
+      setTimeout(() => setStatusMessage(''), 3000);
+    }
+  };
+
   const handleChatSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim()) return;
@@ -100,7 +117,27 @@ const DesignerPage: React.FC = () => {
   };
 
   const handleExport = (type: 'png' | 'glb') => {
-    alert(`Export ${type.toUpperCase()} feature is a stub in this prototype.\n\nIn production, this would package the 3D scene.`);
+    if (type === 'png') {
+      if (canvasRef.current) {
+        try {
+          const dataUrl = canvasRef.current.toDataURL('image/png');
+          const link = document.createElement('a');
+          link.download = `${designState.projectName.replace(/\s+/g, '_')}_design.png`;
+          link.href = dataUrl;
+          link.click();
+          setStatusMessage('Gambar berhasil didownload!');
+          setTimeout(() => setStatusMessage(''), 3000);
+        } catch (err) {
+          console.error("Screenshot failed:", err);
+          alert("Gagal mengambil screenshot. Pastikan browser mendukung.");
+        }
+      } else {
+        alert("Canvas belum siap untuk diekspor.");
+      }
+    } else {
+      // Stub for GLB export
+      alert(`Fitur Export GLB akan mengemas scene 3D saat ini ke file .glb.\n\nTODO: Implementasi GLTFExporter dari Three.js di sini.`);
+    }
   };
 
   return (
@@ -155,12 +192,38 @@ const DesignerPage: React.FC = () => {
 
           <div className="border-t border-gray-100 my-4"></div>
 
+          {/* Custom Model Upload */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Model 3D (.glb)
+            </label>
+            <div className="flex items-center gap-2">
+               <label className="flex-1 flex items-center justify-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 cursor-pointer">
+                 <Box className="h-4 w-4 mr-2" />
+                 {designState.customModelUrl ? 'Ganti Model' : 'Upload Model'}
+                 <input type="file" className="hidden" accept=".glb,.gltf" onChange={handleModelUpload} />
+               </label>
+               {designState.customModelUrl && (
+                 <button 
+                  onClick={() => setDesignState(prev => ({ ...prev, customModelUrl: null }))}
+                  className="p-2 text-red-500 hover:bg-red-50 rounded"
+                  title="Hapus Model"
+                 >
+                   <X className="h-4 w-4" />
+                 </button>
+               )}
+            </div>
+            {designState.customModelUrl && <p className="mt-1 text-xs text-green-600">Model kustom aktif</p>}
+          </div>
+
+          <div className="border-t border-gray-100 my-4"></div>
+
           {/* Manual Controls */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Pengaturan Dasar</label>
             <div className="space-y-3">
               <div>
-                <span className="text-xs text-gray-500">Base Color</span>
+                <span className="text-xs text-gray-500">Warna Dasar</span>
                 <div className="flex gap-2 mt-1">
                   <input 
                     type="color" 
@@ -173,18 +236,54 @@ const DesignerPage: React.FC = () => {
                   </div>
                 </div>
               </div>
+              
+              {/* Only show Garment Type selector if NO custom model is loaded */}
+              {!designState.customModelUrl && (
+                <div>
+                  <span className="text-xs text-gray-500">Tipe Pakaian</span>
+                  <select 
+                    value={designState.garmentType}
+                    onChange={(e) => setDesignState({...designState, garmentType: e.target.value})}
+                    className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-orange-500 focus:border-orange-500 sm:text-sm"
+                  >
+                    <option value={GarmentType.TSHIRT}>T-Shirt</option>
+                    <option value={GarmentType.HOODIE}>Hoodie</option>
+                    <option value={GarmentType.DRESS}>Dress</option>
+                  </select>
+                </div>
+              )}
+
               <div>
-                 <span className="text-xs text-gray-500">Garment Type</span>
+                 <span className="text-xs text-gray-500">Ukuran / Fit (Scale)</span>
                  <select 
-                  value={designState.garmentType}
-                  onChange={(e) => setDesignState({...designState, garmentType: e.target.value})}
+                  value={designState.fit}
+                  onChange={(e) => setDesignState({...designState, fit: e.target.value as FitType})}
                   className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-orange-500 focus:border-orange-500 sm:text-sm"
                  >
-                   <option value={GarmentType.TSHIRT}>T-Shirt</option>
-                   <option value={GarmentType.HOODIE}>Hoodie</option>
-                   <option value={GarmentType.DRESS}>Dress</option>
+                   <option value="Regular">Regular Fit</option>
+                   <option value="Slim">Slim Fit</option>
+                   <option value="Oversized">Oversized / Baggy</option>
                  </select>
               </div>
+
+              {/* Texture Scale Control */}
+              {designState.textureUrl && (
+                <div className="pt-2 border-t border-dashed border-gray-200">
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-xs text-gray-500">Skala Motif</span>
+                    <span className="text-xs text-gray-900">{designState.textureScale}x</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="1" 
+                    max="10" 
+                    step="0.5"
+                    value={designState.textureScale}
+                    onChange={(e) => setDesignState({...designState, textureScale: parseFloat(e.target.value)})}
+                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-orange-600"
+                  />
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -214,9 +313,13 @@ const DesignerPage: React.FC = () => {
           {/* Main: 3D Viewer */}
           <div className="flex-1 min-h-0 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden relative">
             <ThreeDViewer 
+              ref={canvasRef}
               color={designState.color} 
               textureUrl={designState.textureUrl}
               garmentType={designState.garmentType}
+              fit={designState.fit}
+              textureScale={designState.textureScale}
+              customModelUrl={designState.customModelUrl}
             />
             {statusMessage && (
                <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black/70 text-white px-6 py-3 rounded-full text-sm font-medium backdrop-blur-md animate-pulse">
@@ -277,7 +380,11 @@ const DesignerPage: React.FC = () => {
           </div>
           <div>
             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Jenis</label>
-            <p className="text-sm text-gray-900 mt-1">{designState.garmentType}</p>
+            <p className="text-sm text-gray-900 mt-1">{designState.customModelUrl ? 'Custom Model' : designState.garmentType}</p>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Fit</label>
+            <p className="text-sm text-gray-900 mt-1">{designState.fit}</p>
           </div>
           <div>
             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Catatan</label>
