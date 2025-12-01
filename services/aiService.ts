@@ -1,11 +1,12 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { AiResponse } from "../types";
 
 // Initialize Gemini
 // Note: In a real production app, API keys should not be exposed on the client side directly
 // without proper restrictions, or calls should be proxied through a backend.
-const apiKey = (typeof process !== 'undefined' && process.env && process.env.API_KEY) || '';
-const ai = new GoogleGenAI({ apiKey: apiKey });
+// As per guidelines, we access process.env.API_KEY directly.
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Mock data to use if API key is missing or for rapid prototyping
 const MOCK_DESIGN_RESPONSE: AiResponse = {
@@ -15,7 +16,7 @@ const MOCK_DESIGN_RESPONSE: AiResponse = {
 };
 
 export const generateDesignFromText = async (prompt: string): Promise<AiResponse> => {
-  if (!apiKey) {
+  if (!process.env.API_KEY) {
     console.warn("No API Key found. Returning mock data.");
     await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate delay
     return MOCK_DESIGN_RESPONSE;
@@ -69,7 +70,7 @@ export const generateDesignFromImage = async (imageFile: File): Promise<AiRespon
 };
 
 export const chatWithAiAssistant = async (history: {role: string, content: string}[], newMessage: string): Promise<string> => {
-  if (!apiKey) {
+  if (!process.env.API_KEY) {
     await new Promise(resolve => setTimeout(resolve, 1000));
     return "Halo! Saya adalah asisten desain Clo Vsual (Mode Demo). Saya bisa memberikan saran tentang tren warna, kain, dan gaya untuk proyek fashion Anda.";
   }

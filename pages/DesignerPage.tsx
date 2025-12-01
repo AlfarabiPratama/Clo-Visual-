@@ -1,26 +1,42 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation } from '../components/Navbar';
-import { Download, Save, Wand2, Upload, MessageSquare, X, Send, Box } from 'lucide-react';
+import { Download, Save, Wand2, Upload, MessageSquare, X, Send, Box, Undo, Redo } from 'lucide-react';
 import { DesignState, GarmentType, ChatMessage, FitType } from '../types';
 import ThreeDViewer from '../components/ThreeDViewer';
 import { generateDesignFromText, generateDesignFromImage, chatWithAiAssistant } from '../services/aiService';
 
 const DesignerPage: React.FC = () => {
   const location = useLocation();
-  const initialState = location.state as any;
+  const initialStateData = location.state as any;
+
+  // Helper to construct initial state consistently
+  const getInitialState = (): DesignState => ({
+    projectName: initialStateData?.name || 'Untitled Project',
+    garmentType: initialStateData?.type || initialStateData?.project?.garmentType || GarmentType.TSHIRT,
+    color: '#ffffff',
+    textureUrl: null,
+    description: initialStateData?.project?.description || '',
+    fit: 'Regular',
+    textureScale: 3,
+    customModelUrl: null
+  });
 
   // --- State ---
-  const [designState, setDesignState] = useState<DesignState>({
-    projectName: initialState?.name || 'Untitled Project',
-    garmentType: initialState?.type || initialState?.project?.garmentType || GarmentType.TSHIRT,
-    color: '#ffffff',
-    textureUrl: null, // Start with no texture
-    description: initialState?.project?.description || '',
-    fit: 'Regular', // Default fit
-    textureScale: 3, // Default scale
-    customModelUrl: null // Start with no custom model
-  });
+  // We initialize history with the first state
+  const [history, setHistory] = useState<DesignState[]>([getInitialState()]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+  
+  // derived current state for rendering
+  const designState = history[historyIndex];
+
+  // Ref to hold the latest designState for async handlers to avoid stale closures
+  const designStateRef = useRef(designState);
+
+  // Sync ref with state
+  useEffect(() => {
+    designStateRef.current = designState;
+  }, [designState]);
 
   const [promptText, setPromptText] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -37,6 +53,50 @@ const DesignerPage: React.FC = () => {
   // Ref for the 3D Canvas (for export)
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
+  // --- Undo / Redo / History Logic ---
+
+  const applyDesignChange = (newState: DesignState) => {
+    // Slice history to current index (removing any redo history)
+    const newHistory = history.slice(0, historyIndex + 1);
+    // Push new state
+    newHistory.push(newState);
+    
+    setHistory(newHistory);
+    setHistoryIndex(newHistory.length - 1);
+  };
+
+  const undo = () => {
+    if (historyIndex > 0) {
+      setHistoryIndex(historyIndex - 1);
+    }
+  };
+
+  const redo = () => {
+    if (historyIndex < history.length - 1) {
+      setHistoryIndex(historyIndex + 1);
+    }
+  };
+
+  // Keyboard shortcuts for Undo/Redo
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        if (e.shiftKey) {
+          redo();
+        } else {
+          undo();
+        }
+        e.preventDefault();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        redo();
+        e.preventDefault();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [historyIndex, history.length]); // Re-bind when indices change to capture latest closure if needed, though functions rely on state setters
+
   // --- Handlers ---
 
   const handleTextGeneration = async () => {
@@ -49,19 +109,21 @@ const DesignerPage: React.FC = () => {
       const result = await generateDesignFromText(promptText);
       setStatusMessage('Menerapkan desain...');
       
-      setDesignState(prev => ({
-        ...prev,
+      // Use ref to get the absolute latest state before merging
+      const current = designStateRef.current;
+      const newState: DesignState = {
+        ...current,
         color: result.suggestedColor,
         textureUrl: result.texturePattern,
         description: result.designDescription
-      }));
+      };
       
+      applyDesignChange(newState);
       setStatusMessage('Selesai!');
     } catch (error) {
       setStatusMessage('Gagal generate desain.');
     } finally {
       setIsGenerating(false);
-      // Clear status after delay
       setTimeout(() => setStatusMessage(''), 3000);
     }
   };
@@ -75,12 +137,15 @@ const DesignerPage: React.FC = () => {
       try {
         const result = await generateDesignFromImage(file);
         
-        setDesignState(prev => ({
-          ...prev,
+        const current = designStateRef.current;
+        const newState: DesignState = {
+          ...current,
           color: result.suggestedColor,
           textureUrl: result.texturePattern,
           description: result.designDescription
-        }));
+        };
+
+        applyDesignChange(newState);
         setStatusMessage('Desain diterapkan dari gambar.');
       } catch (error) {
         setStatusMessage('Gagal memproses gambar.');
@@ -95,7 +160,7 @@ const DesignerPage: React.FC = () => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       const url = URL.createObjectURL(file);
-      setDesignState(prev => ({ ...prev, customModelUrl: url }));
+      applyDesignChange({ ...designState, customModelUrl: url });
       setStatusMessage(`Model ${file.name} dimuat!`);
       setTimeout(() => setStatusMessage(''), 3000);
     }
@@ -145,8 +210,26 @@ const DesignerPage: React.FC = () => {
       
       {/* --- Left Sidebar: Controls --- */}
       <div className="w-80 bg-white border-r border-gray-200 flex flex-col overflow-y-auto">
-        <div className="p-4 border-b border-gray-200">
+        <div className="p-4 border-b border-gray-200 flex justify-between items-center">
           <h2 className="text-lg font-semibold text-gray-800">Designer Tools</h2>
+          <div className="flex gap-1">
+            <button 
+              onClick={undo} 
+              disabled={historyIndex === 0}
+              className="p-1.5 rounded-md hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent text-gray-600 transition-colors"
+              title="Undo (Ctrl+Z)"
+            >
+              <Undo className="h-4 w-4" />
+            </button>
+            <button 
+              onClick={redo} 
+              disabled={historyIndex === history.length - 1}
+              className="p-1.5 rounded-md hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent text-gray-600 transition-colors"
+              title="Redo (Ctrl+Y)"
+            >
+              <Redo className="h-4 w-4" />
+            </button>
+          </div>
         </div>
         
         <div className="p-4 space-y-6">
@@ -205,7 +288,7 @@ const DesignerPage: React.FC = () => {
                </label>
                {designState.customModelUrl && (
                  <button 
-                  onClick={() => setDesignState(prev => ({ ...prev, customModelUrl: null }))}
+                  onClick={() => applyDesignChange({ ...designState, customModelUrl: null })}
                   className="p-2 text-red-500 hover:bg-red-50 rounded"
                   title="Hapus Model"
                  >
@@ -228,7 +311,7 @@ const DesignerPage: React.FC = () => {
                   <input 
                     type="color" 
                     value={designState.color}
-                    onChange={(e) => setDesignState({...designState, color: e.target.value})}
+                    onChange={(e) => applyDesignChange({...designState, color: e.target.value})}
                     className="h-8 w-12 p-0 border-0 rounded cursor-pointer" 
                   />
                   <div className="text-sm py-1 px-2 bg-gray-100 rounded text-gray-600 uppercase">
@@ -243,7 +326,7 @@ const DesignerPage: React.FC = () => {
                   <span className="text-xs text-gray-500">Tipe Pakaian</span>
                   <select 
                     value={designState.garmentType}
-                    onChange={(e) => setDesignState({...designState, garmentType: e.target.value})}
+                    onChange={(e) => applyDesignChange({...designState, garmentType: e.target.value})}
                     className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-orange-500 focus:border-orange-500 sm:text-sm"
                   >
                     <option value={GarmentType.TSHIRT}>T-Shirt</option>
@@ -257,7 +340,7 @@ const DesignerPage: React.FC = () => {
                  <span className="text-xs text-gray-500">Ukuran / Fit (Scale)</span>
                  <select 
                   value={designState.fit}
-                  onChange={(e) => setDesignState({...designState, fit: e.target.value as FitType})}
+                  onChange={(e) => applyDesignChange({...designState, fit: e.target.value as FitType})}
                   className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-orange-500 focus:border-orange-500 sm:text-sm"
                  >
                    <option value="Regular">Regular Fit</option>
@@ -279,7 +362,7 @@ const DesignerPage: React.FC = () => {
                     max="10" 
                     step="0.5"
                     value={designState.textureScale}
-                    onChange={(e) => setDesignState({...designState, textureScale: parseFloat(e.target.value)})}
+                    onChange={(e) => applyDesignChange({...designState, textureScale: parseFloat(e.target.value)})}
                     className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-orange-600"
                   />
                 </div>

@@ -1,7 +1,7 @@
-
-import React, { useRef, useLayoutEffect, Component, ReactNode, forwardRef } from 'react';
+import React, { useRef, useLayoutEffect, ReactNode, forwardRef, Component } from 'react';
 import { Canvas, useFrame, useLoader } from '@react-three/fiber';
 import { OrbitControls, useTexture, ContactShadows, Environment, Center, useGLTF } from '@react-three/drei';
+import { EffectComposer, SSAO } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { FitType, GarmentType } from '../types';
 
@@ -9,15 +9,7 @@ import { FitType, GarmentType } from '../types';
 declare global {
   namespace JSX {
     interface IntrinsicElements {
-      group: any;
-      meshStandardMaterial: any;
-      meshPhysicalMaterial: any; // Added for PBR
-      cylinderGeometry: any;
-      sphereGeometry: any;
-      mesh: any;
-      boxGeometry: any;
-      torusGeometry: any;
-      primitive: any;
+      [elemName: string]: any;
     }
   }
 }
@@ -32,13 +24,19 @@ interface ThreeDViewerProps {
 }
 
 // --- ERROR BOUNDARY ---
-class TextureErrorBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { hasError: boolean }> {
-  constructor(props: any) {
-    super(props);
-    this.state = { hasError: false };
-  }
+interface TextureErrorBoundaryProps {
+  fallback: ReactNode;
+  children: ReactNode;
+}
 
-  static getDerivedStateFromError(error: any) {
+interface TextureErrorBoundaryState {
+  hasError: boolean;
+}
+
+class TextureErrorBoundary extends Component<TextureErrorBoundaryProps, TextureErrorBoundaryState> {
+  state: TextureErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(error: any): TextureErrorBoundaryState {
     return { hasError: true };
   }
 
@@ -65,7 +63,8 @@ const CustomGLBModel: React.FC<{ url: string; color: string; textureUrl: string 
     if (textureUrl && texture) {
        texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
        texture.repeat.set(textureScale, textureScale);
-       texture.colorSpace = THREE.SRGBColorSpace;
+       // Compatible with Three.js r160+
+       texture.colorSpace = THREE.SRGBColorSpace; 
     }
 
     clone.traverse((child: any) => {
@@ -103,6 +102,7 @@ const TexturedMaterial: React.FC<{ url: string; color: string; scale: number }> 
     if (texture) {
       texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
       texture.repeat.set(scale, scale);
+      // Compatible with Three.js r160+
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.needsUpdate = true;
     }
@@ -358,7 +358,13 @@ export const ThreeDViewer = forwardRef<HTMLCanvasElement, ThreeDViewerProps>(
       <Canvas 
         shadows 
         dpr={[1, 2]} 
-        gl={{ preserveDrawingBuffer: true }}
+        gl={{ 
+          preserveDrawingBuffer: true, 
+          antialias: false,
+          // Updated for Three.js r160+
+          outputColorSpace: THREE.SRGBColorSpace,
+          toneMapping: THREE.ACESFilmicToneMapping
+        }} 
         camera={{ position: [0, 0, 4.5], fov: 45 }}
         onCreated={({ gl }) => {
            // Attach the canvas element to the forwarded ref
@@ -387,12 +393,22 @@ export const ThreeDViewer = forwardRef<HTMLCanvasElement, ThreeDViewerProps>(
           />
         </React.Suspense>
         
+        {/* Post-Processing Effects */}
+        <EffectComposer multisampling={0}>
+           <SSAO 
+             radius={0.15}
+             intensity={12}
+             luminanceInfluence={0.5}
+             color={new THREE.Color("black")}
+           />
+        </EffectComposer>
+
         {/* Controls */}
         <OrbitControls autoRotate={false} makeDefault minPolarAngle={0} maxPolarAngle={Math.PI / 1.5} />
       </Canvas>
       
       <div className="absolute bottom-4 right-4 z-10 text-[10px] text-gray-400 pointer-events-none">
-        3D Mockup Viewer • PBR Rendering
+        3D Mockup Viewer • PBR & AO
       </div>
     </div>
   );
